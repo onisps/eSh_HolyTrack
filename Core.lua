@@ -390,7 +390,9 @@ login:SetScript("OnEvent", function()
         end
         if type(profile.colors) ~= "table" then profile.colors = {} end
         for k, v in pairs(defaults.colors) do
-            if type(profile.colors[k]) ~= "table" then profile.colors[k] = v end
+            if type(profile.colors[k]) ~= "table" then
+                profile.colors[k] = {v[1], v[2], v[3], v[4]} -- deep copy: never share tables
+            end
         end
         if type(profile.texture) ~= "string" then profile.texture = defaults.texture end
         if type(profile.rowHeight) ~= "number" then profile.rowHeight = defaults.rowHeight end
@@ -401,8 +403,10 @@ login:SetScript("OnEvent", function()
         -- the old trackRenew/trackPom toggles and colors.
         if type(profile.watch) ~= "table" then
             profile.watch = {
-                {id = SPELL_RENEW, name = "Renew", enabled = profile.trackRenew ~= false, color = profile.colors.renew, builtin = true},
-                {id = SPELL_POM, name = "Prayer of Mending", enabled = profile.trackPom ~= false, color = profile.colors.pom, builtin = true},
+                {id = SPELL_RENEW, name = "Renew", enabled = profile.trackRenew ~= false,
+                    color = {profile.colors.renew[1], profile.colors.renew[2], profile.colors.renew[3], profile.colors.renew[4]}, builtin = true},
+                {id = SPELL_POM, name = "Prayer of Mending", enabled = profile.trackPom ~= false,
+                    color = {profile.colors.pom[1], profile.colors.pom[2], profile.colors.pom[3], profile.colors.pom[4]}, builtin = true},
             }
         end
         for _, w in ipairs(profile.watch) do
@@ -512,23 +516,31 @@ end
 
 local function OpenColorPicker(colorTable, onDone)
     local r, g, b, a = colorTable[1], colorTable[2], colorTable[3], colorTable[4] or 1
-    ColorPickerFrame:SetFrameStrata("TOOLTIP")
-    ColorPickerFrame:SetColorRGB(r, g, b)
-    ColorPickerFrame.hasOpacity = true
-    ColorPickerFrame.opacity = a
-    ColorPickerFrame.previousValues = {r = r, g = g, b = b, a = a}
     local function apply()
         local nr, ng, nb = ColorPickerFrame:GetColorRGB()
         local na = OpacitySliderFrame:GetValue()
         colorTable[1], colorTable[2], colorTable[3], colorTable[4] = nr, ng, nb, na
         onDone()
     end
-    ColorPickerFrame.func = apply
-    ColorPickerFrame.opacityFunc = apply
-    ColorPickerFrame.cancelFunc = function(prev)
+    local function cancel(prev)
         colorTable[1], colorTable[2], colorTable[3], colorTable[4] = prev.r, prev.g, prev.b, prev.a
         onDone()
     end
+    ColorPickerFrame:SetFrameStrata("TOOLTIP")
+    -- IMPORTANT: clear stale callbacks BEFORE SetColorRGB/opacity - those fire
+    -- OnColorSelect, which would run the PREVIOUS picker's apply() and write
+    -- this color into the previously edited spell's color table.
+    ColorPickerFrame.func = nil
+    ColorPickerFrame.opacityFunc = nil
+    ColorPickerFrame.cancelFunc = nil
+    ColorPickerFrame.hasOpacity = true
+    ColorPickerFrame.previousValues = {r = r, g = g, b = b, a = a}
+    ColorPickerFrame:SetColorRGB(r, g, b)
+    ColorPickerFrame.opacity = a
+    -- now install the fresh callbacks for THIS spell
+    ColorPickerFrame.func = apply
+    ColorPickerFrame.opacityFunc = apply
+    ColorPickerFrame.cancelFunc = cancel
     ShowUIPanel(ColorPickerFrame)
 end
 
@@ -584,25 +596,36 @@ function BuildOptionsPanel()
         function(v) ns.db.rowHeight = math.floor(v + 0.5); RefreshEverything() end)
     sHeight:SetPoint("TOPLEFT", panel, "TOPLEFT", 230, -110)
 
-    -- texture dropdown (LibSharedMedia, like Quartz; falls back to a builtin list)
+    -- texture picker: scrollable list with previews (dropdown can't scroll)
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true) or nil
-    local dd = CreateFrame("Frame", "eSh_HolyTrackTextureDD", panel, "UIDropDownMenuTemplate")
-    UIDropDownMenu_SetWidth(dd, 170)
-    UIDropDownMenu_JustifyText(dd, "LEFT")
-    local ddLabel = AddTitle(panel, "Bar texture")
-    ddLabel:SetPoint("BOTTOMLEFT", dd, "TOPLEFT", 8, 0)
-    local function textureName(path)
-        if LSM then
-            for name in pairs(LSM:HashTable("statusbar")) do
-                if LSM:Fetch("statusbar", name) == path then return name end
-            end
+    local texLabel = AddTitle(panel, "Bar texture (scroll list)")
+    texLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -152)
+    local texScroll = CreateFrame("ScrollFrame", "eSh_HolyTrackTexScroll", panel, "UIPanelScrollFrameTemplate")
+    texScroll:SetSize(250, 100)
+    texScroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -170)
+    local texChild = CreateFrame("Frame", nil, texScroll)
+    texChild:SetSize(230, 100)
+    texScroll:SetScrollChild(texChild)
+
+    local texRows = {}
+    local function GetTexRow(i)
+        local r = texRows[i]
+        if not r then
+            r = CreateFrame("Button", nil, texChild, "UIPanelButtonTemplate")
+            r:SetSize(220, 20)
+            r.preview = r:CreateTexture(nil, "OVERLAY")
+            r.preview:SetSize(30, 12)
+            r.preview:SetPoint("LEFT", r, "LEFT", 4, 0)
+            r.preview:SetTexCoord(0, 1, 0, 1)
+            r.txt = r:GetFontString()
+            r.txt:ClearAllPoints()
+            r.txt:SetPoint("LEFT", r.preview, "RIGHT", 6, 0)
+            texRows[i] = r
         end
-        for _, t in ipairs(TEXTURES) do
-            if t[2] == path then return t[1] end
-        end
-        return path
+        return r
     end
-    local function ddInit(self, level)
+
+    local function TextureItems()
         local items = {}
         if LSM then
             for _, name in pairs(LSM:List("statusbar")) do
@@ -614,28 +637,37 @@ function BuildOptionsPanel()
             end
         end
         table.sort(items, function(a, b) return a.name < b.name end)
-        for _, t in ipairs(items) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = t.name
-            info.value = t.path
-            info.func = function()
-                ns.db.texture = t.path
-                UIDropDownMenu_SetSelectedValue(dd, t.path)
-                UIDropDownMenu_SetText(dd, t.name)
-                RefreshEverything()
+        return items
+    end
+
+    local function RefreshTextureList()
+        local items = TextureItems()
+        for i = 1, math.max(#texRows, #items) do
+            local r = GetTexRow(i)
+            local item = items[i]
+            if item then
+                r:Show()
+                r:ClearAllPoints()
+                r:SetPoint("TOPLEFT", texChild, "TOPLEFT", 0, -(i - 1) * 22)
+                r.preview:SetTexture(item.path)
+                r:SetText(item.name)
+                if ns.db.texture == item.path then
+                    r:LockHighlight()
+                else
+                    r:UnlockHighlight()
+                end
+                r:SetScript("OnClick", function()
+                    ns.db.texture = item.path
+                    RefreshTextureList()
+                    RefreshEverything()
+                end)
+            else
+                r:Hide()
             end
-            info.checked = ns.db.texture == t.path
-            UIDropDownMenu_AddButton(info, level)
         end
+        texChild:SetHeight(#items * 22 + 4)
     end
-    UIDropDownMenu_Initialize(dd, ddInit)
-    UIDropDownMenu_SetSelectedValue(dd, ns.db.texture)
-    UIDropDownMenu_SetText(dd, textureName(ns.db.texture))
-    dd:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -158)
-    dd.refresh = function()
-        UIDropDownMenu_SetSelectedValue(dd, ns.db.texture)
-        UIDropDownMenu_SetText(dd, textureName(ns.db.texture))
-    end
+    ns.RefreshTextureList = RefreshTextureList
 
     -- grow direction dropdown
     local growDD = CreateFrame("Frame", "eSh_HolyTrackGrowDD", panel, "UIDropDownMenuTemplate")
@@ -676,12 +708,12 @@ function BuildOptionsPanel()
     -- Watch list: what spells to track
     -- ============================================================
     local watchLabel = AddTitle(panel, "Spells to watch", "big")
-    watchLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -206)
+    watchLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -282)
 
     -- scroll container
     local scroll = CreateFrame("ScrollFrame", "eSh_HolyTrackWatchScroll", panel, "UIPanelScrollFrameTemplate")
-    scroll:SetSize(560, 160)
-    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -224)
+    scroll:SetSize(560, 150)
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -300)
     local scrollChild = CreateFrame("Frame", nil, scroll)
     scrollChild:SetSize(540, 160)
     scroll:SetScrollChild(scrollChild)
@@ -781,7 +813,10 @@ function BuildOptionsPanel()
         scrollChild:SetHeight(#watches * 26 + 4)
     end
     ns.RefreshWatchList = RefreshWatchList
-    panel:SetScript("OnShow", function() RefreshWatchList() end)
+    panel:SetScript("OnShow", function()
+        RefreshWatchList()
+        if ns.RefreshTextureList then ns.RefreshTextureList() end
+    end)
 
     -- add form: [ID input] [Add]  -> fetches name+icon from spell id
     local addLabel = AddTitle(panel, "Add spell by ID:")
@@ -821,7 +856,7 @@ function BuildOptionsPanel()
 
     -- profiles
     local profLabel = AddTitle(panel, "Profiles (settings sets)", "big")
-    profLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -428)
+    profLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -504)
 
     local profDD = CreateFrame("Frame", "eSh_HolyTrackProfileDD", panel, "UIDropDownMenuTemplate")
     UIDropDownMenu_SetWidth(profDD, 170)
@@ -847,14 +882,14 @@ function BuildOptionsPanel()
         end
     end)
     UIDropDownMenu_SetSelectedValue(profDD, eSh_HolyTrackDB.activeProfile)
-    profDD:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -448)
+    profDD:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -524)
     profDD.refresh = function() UIDropDownMenu_SetSelectedValue(profDD, eSh_HolyTrackDB.activeProfile) end
 
     -- create / delete profile
     local newInput = CreateFrame("EditBox", "eSh_HolyTrackNewProfileBox", panel, "InputBoxTemplate")
     newInput:SetSize(140, 20)
     newInput:SetAutoFocus(false)
-    newInput:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -500)
+    newInput:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -576)
     local createBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     createBtn:SetSize(80, 22)
     createBtn:SetText("Create")
@@ -900,6 +935,7 @@ function RefreshAllControls()
         if child.refresh then child.refresh() end
     end
     if ns.RefreshWatchList then ns.RefreshWatchList() end
+    if ns.RefreshTextureList then ns.RefreshTextureList() end
 end
 
 -- ============================================================
