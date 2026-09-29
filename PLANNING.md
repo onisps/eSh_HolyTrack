@@ -27,6 +27,7 @@
 
 | Decision | Reasoning |
 |----------|-----------|
+| Bar size as scale multipliers (0.25×–2×, step 0.01, base 200×18) | Same implementation as HandyNotes World Map Icon Scale: real size = base × scale, computed at render. Old absolute px values migrate to scale (width/200). |
 | Embed LibSharedMedia-3.0 | Avoids requiring users to install a separate library; guarantees texture availability. |
 | Watch-list driven scanning | Makes the addon generic – Renew and PoM are just two entries; users can add any spell without code changes. |
 | Pre-create all frames at login | Eliminates secure taint (ADDON_ACTION_BLOCKED) caused by creating frames inside OnUpdate during combat. |
@@ -38,6 +39,7 @@
 | Disable tracking via checkbox | Allows users to temporarily stop scanning without losing their watch list or settings. |
 | Add spell by ID only | Prevents typos and locale issues; the spell name/icon is fetched from the client, guaranteeing correctness. |
 | DBM-style bar layout (no frame chrome) | User preference: bars anchored at an edge growing inward, like DBM timers. |
+| Custom scrollable dropdown for textures | UIDropDownMenu in 7.3.5 has no scroll support; a custom trigger+popup with UIPanelScrollFrameTemplate gives a real scrollbar and texture previews in every item. |
 | Bars use flat WHITE8X8 texture by default | Clean look; any LSM texture can be selected. |
 | Permanent auras show full bar with `--` | Prevents a bogus countdown on non-expiring auras like Prayer of Mending. |
 | One row pool, fixed size (80 rows + 16 headers) | Simplifies logic and guarantees no combat-time allocation. |

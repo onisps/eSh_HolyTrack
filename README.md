@@ -33,7 +33,7 @@ The panel contains:
 | Section | Controls |
 |---------|----------|
 | **General** | Enable tracking, Locked (hide mover), Show pets |
-| **Appearance** | Bar width (80‑600), Bar height (10‑30), Texture dropdown (LSM), Grow direction (Up/Down) |
+| **Appearance** | Bar width / Bar height **scale** (0.25×–2.00×, step 0.01 — HandyNotes-style multipliers over a 200×18 base; shows `1.50x (300px)`), Texture dropdown (scrollable, with texture previews), Grow direction (Up/Down) |
 | **Colours** | Per‑spell colour swatches in the watch list (opens WoW colour picker with alpha). |
 | **Watch list** | Scrolling list of tracked spells. Each row shows: ☑ Enable • [Icon] • **ID \| Name** • Colour • **X** (delete) |
 | **Add spell** | Enter a numeric spell ID and press **Add** – the addon fetches the name/icon and appends it to the watch list (default colour = orange). |
@@ -71,6 +71,8 @@ To track any other HoT (e.g., Light of T'uure, Essence Font, etc.):
 - LibSharedMedia‑3.0 is embedded; if another addon registers a texture with the same name, the latest registration wins (standard LSM behaviour).
 
 ## Changelog
+
+**v1.3.0** – Bar size as scale multipliers (HandyNotes-style 0.25×–2.00×), scrollable texture dropdown with previews, aligned options layout with separator lines.
 
 **v1.2.1** – Embedded LibSharedMedia‑3.0, fixed raid‑duplicate buffs, added combat‑safe frame pool, watch‑list refresh on panel show, fixed PoM permanent‑aura display.
 

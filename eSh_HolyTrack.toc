@@ -2,7 +2,7 @@
 ## Title: eSh HolyTrack
 ## Notes: Tracks your HoTs (Renew, Prayer of Mending and custom spells) on all group members.
 ## Author: e_Shikari (Squizy on Evermoon-Tauriwow)
-## Version: 1.2.1
+## Version: 1.3.0
 ## SavedVariables: eSh_HolyTrackDB
 
 Libs\LibSharedMedia-3.0\LibStub\LibStub.lua
