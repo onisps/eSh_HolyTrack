@@ -11,6 +11,8 @@
 -- ============================================================
 local ADDON, ns = ...
 
+local AceGUI = LibStub and LibStub("AceGUI-3.0", true)
+
 local panel
 local allPopups = {} -- custom dropdown popups to close when the panel hides
 
@@ -63,36 +65,48 @@ local function AddCheckbox(parent, label, get, set)
     return cb
 end
 
--- HandyNotes-style scale slider: 0.25..2.00 step 0.01, value shown as
--- "1.25x (250px)". Real size = BASE * scale, derived and stored in db.
+-- HandyNotes-style scale slider: the AceGUI-3.0 Slider widget (same as
+-- HandyNotes' icon_scale control) - label on top, 0.25..2 track with min/max
+-- below, and a centered editbox you can type an exact value into.
+-- Value shown as "1.25x (250px)"; real size = BASE * scale, derived and
+-- stored in db. Wrapped in a plain frame so it can sit on the panel grid.
 local function AddScaleSlider(parent, label, base, get, set)
-    local s = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
-    s:SetWidth(190)
-    s:SetHeight(16)
-    s:SetMinMaxValues(0.25, 2)
-    s:SetValueStep(0.01)
-    s:SetObeyStepOnDrag(true)
-    s.text = s:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    s.text:SetPoint("BOTTOM", s, "TOP", 0, 2)
-    s.text:SetText(label)
-    s.low = s:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    s.low:SetPoint("BOTTOMLEFT", s, "BOTTOMLEFT", 6, -8)
-    s.low:SetText("0.25")
-    s.high = s:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    s.high:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", -6, -8)
-    s.high:SetText("2.0")
-    s.value = s:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    s.value:SetPoint("TOPLEFT", s, "TOPRIGHT", 8, -2)
-    s:SetScript("OnValueChanged", function(self, val)
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetSize(190, 46)
+
+    local widget = AceGUI:Create("Slider")
+    widget:SetLabel(label)
+    widget:SetSliderValues(0.25, 2, 0.01) -- raw numbers, like HandyNotes' icon_scale range
+    widget:SetWidth(190)
+    widget.frame:SetParent(holder)
+    widget.frame:ClearAllPoints()
+    widget.frame:SetAllPoints(holder)
+    widget.frame:Show()
+
+    local function FormatValue(v)
+        return ("%.2fx (%dpx)"):format(v, math.floor(base * v + 0.5))
+    end
+
+    -- HandyNotes shows only the raw value, but we keep the derived px size
+    -- available: release the thumb -> tooltip with "1.25x (250px)"
+    widget:SetCallback("OnMouseUp", function()
+        GameTooltip:SetOwner(widget.frame, "ANCHOR_TOP")
+        GameTooltip:SetText(FormatValue(widget:GetValue()), 1, 0.82, 0)
+        GameTooltip:Show()
+    end)
+    widget.frame:HookScript("OnLeave", GameTooltip_Hide)
+
+    widget:SetCallback("OnValueChanged", function(_, _, val)
+        -- rounded scale drives the derived px size (source of truth = scale)
         val = math.floor(val * 100 + 0.5) / 100
-        self.value:SetText(("%.2fx (%dpx)"):format(val, math.floor(base * val + 0.5)))
         set(val)
     end)
-    s.refresh = function()
-        s:SetValue(get())
-        s.value:SetText(("%.2fx (%dpx)"):format(s:GetValue(), math.floor(base * s:GetValue() + 0.5)))
+
+    holder.refresh = function()
+        widget:SetValue(get())
     end
-    return s
+    holder.widget = widget
+    return holder
 end
 
 -- Standard WoW color picker with alpha. Callbacks are cleared BEFORE
@@ -209,6 +223,14 @@ local function MakeScrollDropdown(parent, width, itemsFn, getSel, setSel)
     local function RefreshPopup()
         local items = itemsFn()
         local sel = getSel()
+        -- size the scroll child BEFORE laying out the rows: rows anchor to
+        -- the child's right edge, so a zero-width child (first open) made
+        -- the name collapse onto the texture preview. The popup has a fixed
+        -- width (width + 24) and the scroll is inset 7 left / 27 right, so
+        -- derive the width directly instead of scroll:GetWidth() (which is
+        -- still 0 before the popup's first Show).
+        child:SetWidth(width - 22)
+        child:SetHeight(#items * 24 + 4)
         for i = 1, math.max(#itemBtns, #items) do
             local b = ItemBtn(i)
             local it = items[i]
@@ -233,8 +255,6 @@ local function MakeScrollDropdown(parent, width, itemsFn, getSel, setSel)
                 b:Hide()
             end
         end
-        child:SetWidth(scroll:GetWidth() - 12)
-        child:SetHeight(#items * 24 + 4)
     end
 
     function dd:UpdateLabel()
@@ -372,14 +392,14 @@ function ns.BuildOptionsPanel()
     end
 
     local texLabel = AddTitle(panel, "Bar texture")
-    texLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -196)
+    texLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -204)
     local texDD = MakeScrollDropdown(panel, 190, TextureItems,
         function() return ns.db.texture end,
         function(path)
             ns.db.texture = path
             RefreshEverything()
         end)
-    texDD:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -210)
+    texDD:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -218)
     allPopups[#allPopups + 1] = texDD.popup
 
     local resetBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
@@ -390,19 +410,19 @@ function ns.BuildOptionsPanel()
         RefreshEverything()
         print("|cff00ff00eSh HolyTrack:|r position reset.")
     end)
-    resetBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", 230, -211)
+    resetBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", 230, -219)
 
-    AddSeparator(panel, -244)
+    AddSeparator(panel, -250)
 
     -- ============================================================
     -- Section: Spells to watch
     -- ============================================================
     local watchLabel = AddTitle(panel, "Spells to watch", "big")
-    watchLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -252)
+    watchLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -258)
 
     local scroll = CreateFrame("ScrollFrame", "eSh_HolyTrackWatchScroll", panel, "UIPanelScrollFrameTemplate")
     scroll:SetSize(560, 150)
-    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -274)
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -280)
     local scrollChild = CreateFrame("Frame", nil, scroll)
     scrollChild:SetSize(540, 150)
     scroll:SetScrollChild(scrollChild)
@@ -706,13 +726,13 @@ function ns.BuildOptionsPanel()
         print("|cff00ff00eSh HolyTrack:|r now watching '" .. name .. "' (id " .. id .. ").")
     end)
 
-    AddSeparator(panel, -466)
+    AddSeparator(panel, -474)
 
     -- ============================================================
     -- Section: Profiles
     -- ============================================================
     local profLabel = AddTitle(panel, "Profiles (settings sets)", "big")
-    profLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -474)
+    profLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -482)
 
     local profDD = CreateFrame("Frame", "eSh_HolyTrackProfileDD", panel, "UIDropDownMenuTemplate")
     UIDropDownMenu_SetWidth(profDD, 170)
@@ -738,14 +758,14 @@ function ns.BuildOptionsPanel()
         end
     end)
     UIDropDownMenu_SetSelectedValue(profDD, eSh_HolyTrackDB.activeProfile)
-    profDD:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -494)
+    profDD:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -502)
     profDD.refresh = function() UIDropDownMenu_SetSelectedValue(profDD, eSh_HolyTrackDB.activeProfile) end
 
     -- create / delete profile
     local newInput = CreateFrame("EditBox", "eSh_HolyTrackNewProfileBox", panel, "InputBoxTemplate")
     newInput:SetSize(140, 20)
     newInput:SetAutoFocus(false)
-    newInput:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -540)
+    newInput:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -548)
     local createBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     createBtn:SetSize(80, 22)
     createBtn:SetText("Create")

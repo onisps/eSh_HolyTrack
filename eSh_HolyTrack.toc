@@ -2,12 +2,13 @@
 ## Title: eSh HolyTrack
 ## Notes: Tracks your HoTs (Renew, Prayer of Mending and custom spells) on all group members.
 ## Author: e_Shikari (Squizy on Evermoon-Tauriwow)
-## Version: 1.3.1
+## Version: 1.4.1
 ## SavedVariables: eSh_HolyTrackDB
 
 Libs\LibSharedMedia-3.0\LibStub\LibStub.lua
 Libs\LibSharedMedia-3.0\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibSharedMedia-3.0\lib.xml
+Libs\AceGUI-3.0\AceGUI-3.0.xml
 
 # load order matters: config first, then modules that register ns.* functions,
 # then SavedVars (calls ns.BuildOptionsPanel at PLAYER_LOGIN) and Commands last.
