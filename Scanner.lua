@@ -1,8 +1,9 @@
 -- ============================================================
 -- Scanner: finds tracked auras on group members.
--- Fills ns.watched (map: spellId -> list of entries) every call.
--- Matching is by spell id AND by name (the aura on the target can carry
--- a different id than the cast spell), and only for auras cast by player.
+-- Fills ns.watched (map: watch-entry -> list of aura entries) every call.
+-- A watch entry may track several spell ids (w.ids, e.g. both Rejuvenation
+-- ids with Germination). Matching is by spell id AND by name (single-id
+-- entries only), and only for auras cast by the player.
 -- ============================================================
 local ADDON, ns = ...
 
@@ -29,18 +30,35 @@ local function GetGroupUnits(includePets)
     return units
 end
 
+local function WatchIds(w)
+    return w.ids or {w.id}
+end
+
+-- true if this entry tracks Prayer of Mending (special sort by stacks)
+function ns.WatchHasPom(w)
+    for _, id in ipairs(WatchIds(w)) do
+        if id == ns.SPELL_POM then return true end
+    end
+    return false
+end
+
 function ns.ScanAuras()
     for _, list in pairs(watched) do wipe(list) end
     local units = GetGroupUnits(ns.db.showPets)
     local now = GetTime()
 
-    -- watch maps for this scan (by spell id and by name, since the aura on the
-    -- target can carry a different id than the cast spell)
+    -- watch maps for this scan: every id of every enabled entry maps to its
+    -- entry; name matching only for single-id entries (ambiguous otherwise)
     local watchById, watchByName = {}, {}
     for _, w in ipairs(ns.db.watch) do
         if w.enabled then
-            watchById[w.id] = w
-            if w.name then watchByName[string.lower(w.name)] = w end
+            local ids = WatchIds(w)
+            for _, id in ipairs(ids) do
+                watchById[id] = w
+            end
+            if #ids == 1 and w.name then
+                watchByName[string.lower(w.name)] = w
+            end
         end
     end
 
@@ -67,8 +85,8 @@ function ns.ScanAuras()
                         timeLeft = (duration and duration > 0 and duration) or 999
                     end
                     if timeLeft > 0 then
-                        local list = watched[w.id]
-                        if not list then list = {} watched[w.id] = list end
+                        local list = watched[w]
+                        if not list then list = {} watched[w] = list end
                         local hasExpiry = (expirationTime and expirationTime > 0) or (duration and duration > 0)
                         list[#list + 1] = {
                             name = GetUnitName(unit, true) or unit,
@@ -85,8 +103,9 @@ function ns.ScanAuras()
         end
     end
 
-    for id, list in pairs(watched) do
-        if id == ns.SPELL_POM then
+    -- per-entry sorting: PoM by stacks first, everything else by time left
+    for w, list in pairs(watched) do
+        if ns.WatchHasPom(w) then
             table.sort(list, function(a, b)
                 if a.stacks ~= b.stacks then return a.stacks > b.stacks end
                 return a.timeLeft < b.timeLeft

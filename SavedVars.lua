@@ -72,6 +72,15 @@ local function MergeDefaults(profile)
         if type(w.name) ~= "string" or w.name == "" then
             w.name = (GetSpellInfo(w.id or 0)) or ("Spell " .. tostring(w.id or "?"))
         end
+        -- id group (e.g. both Rejuvenation ids with Germination) and
+        -- per-entry display mode; migrated from the old flat {id=...}
+        if type(w.ids) ~= "table" or #w.ids == 0 then
+            w.ids = { w.id or 0 }
+        end
+        w.id = w.ids[1] -- primary id (kept in sync for compat/debug)
+        if w.mode ~= "full" and w.mode ~= "rows" and w.mode ~= "summary" then
+            w.mode = "full"
+        end
     end
 end
 

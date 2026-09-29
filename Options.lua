@@ -14,6 +14,13 @@ local ADDON, ns = ...
 local panel
 local allPopups = {} -- custom dropdown popups to close when the panel hides
 
+-- per-watch display modes (watch.mode)
+local MODES = {
+    {label = "Full", value = "full", tip = "Header + one bar per target"},
+    {label = "Rows", value = "rows", tip = "Bars only, no header"},
+    {label = "Summary", value = "summary", tip = "One bar: count + average time left"},
+}
+
 -- forward declarations shared with SavedVars.lua (assigned below)
 ns.BuildOptionsPanel = function() end
 ns.RefreshAllControls = function() end
@@ -419,9 +426,20 @@ function ns.BuildOptionsPanel()
             r.icon:SetPoint("LEFT", r.cb, "RIGHT", 6, 0)
             r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-            -- "ID | Name"
-            r.label = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            r.label:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
+            -- "ID | Name" button (click = open the id-group editor)
+            r.labelBtn = CreateFrame("Button", nil, r)
+            r.labelBtn:SetSize(230, 22)
+            r.labelBtn:SetPoint("LEFT", r.icon, "RIGHT", 2, 0)
+            r.labelBtn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+            r.label = r.labelBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            r.label:SetPoint("LEFT", r.labelBtn, "LEFT", 2, 0)
+
+            -- display mode dropdown ("full" | "rows" | "summary");
+            -- initialized per-entry in RefreshWatchList (needs the current w)
+            r.modeDD = CreateFrame("Frame", "eSh_HolyTrackModeDD" .. i, r, "UIDropDownMenuTemplate")
+            r.modeDD:SetPoint("LEFT", r.labelBtn, "RIGHT", -6, -2)
+            UIDropDownMenu_SetWidth(r.modeDD, 78)
+            UIDropDownMenu_JustifyText(r.modeDD, "LEFT")
 
             -- color swatch (click to change)
             r.sw = CreateFrame("Button", nil, r)
@@ -465,16 +483,43 @@ function ns.BuildOptionsPanel()
             r:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, -y)
             y = y + 26
 
-            local name, _, icon = GetSpellInfo(w.id)
-            if name then w.name = name end
+            -- label: "ids | Name"; auto-name only while the group has one id
+            -- and the user has not set a custom one
+            if #w.ids == 1 and not w.customName then
+                local name = GetSpellInfo(w.ids[1])
+                if name then w.name = name end
+            end
+            local name, _, icon = GetSpellInfo(w.ids[1])
             r.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-            r.label:SetText(w.id .. " | " .. (w.name or "?"))
+            r.label:SetText(table.concat(w.ids, "+") .. " | " .. (w.name or "?"))
             r.sw.tex:SetVertexColor(w.color[1], w.color[2], w.color[3], w.color[4] or 1)
+
+            -- mode dropdown: rebuild the menu for the CURRENT watch entry
+            UIDropDownMenu_Initialize(r.modeDD, function(self, level)
+                for _, m in ipairs(MODES) do
+                    local info = UIDropDownMenu_CreateInfo()
+                    info.text = m.label
+                    info.value = m.value
+                    info.tooltipTitle = m.label
+                    info.tooltipText = m.tip
+                    info.func = function()
+                        w.mode = m.value
+                        UIDropDownMenu_SetSelectedValue(r.modeDD, m.value)
+                    end
+                    info.checked = w.mode == m.value
+                    UIDropDownMenu_AddButton(info, level)
+                end
+            end)
+            UIDropDownMenu_SetSelectedValue(r.modeDD, w.mode)
 
             r.cb:SetScript("OnClick", function(self)
                 w.enabled = self:GetChecked() and true or false
             end)
             r.cb:SetChecked(w.enabled)
+
+            r.labelBtn:SetScript("OnClick", function()
+                OpenIdGroupEditor(w, r)
+            end)
 
             r.sw:SetScript("OnClick", function()
                 OpenColorPicker(w.color, function()
@@ -495,6 +540,133 @@ function ns.BuildOptionsPanel()
         scrollChild:SetHeight(#watches * 26 + 4)
     end
     ns.RefreshWatchList = RefreshWatchList
+
+    -- ============================================================
+    -- ID group editor: click the "ids | Name" label to open a popup
+    -- listing the tracked ids of one watch entry; remove with X, add
+    -- by typing an id. Lets several spell ids share one section
+    -- (e.g. both Rejuvenation ids with Germination).
+    -- ============================================================
+    local editor = CreateFrame("Frame", "eSh_HolyTrackIdGroupEditor", panel)
+    editor:SetSize(250, 120)
+    editor:SetFrameStrata("TOOLTIP")
+    editor:SetToplevel(true)
+    editor:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 12,
+        insets = {left = 3, right = 3, top = 3, bottom = 3},
+    })
+    editor:SetBackdropColor(0, 0, 0, 0.92)
+    editor:Hide()
+    allPopups[#allPopups + 1] = editor
+
+    editor.title = editor:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    editor.title:SetPoint("TOPLEFT", editor, "TOPLEFT", 10, -8)
+    editor.title:SetPoint("RIGHT", editor, "RIGHT", -10, 0)
+    editor.title:SetJustifyH("LEFT")
+
+    editor.input = CreateFrame("EditBox", "eSh_HolyTrackIdGroupAddBox", editor, "InputBoxTemplate")
+    editor.input:SetSize(80, 20)
+    editor.input:SetAutoFocus(false)
+    editor.input:SetNumeric(true)
+    editor.input:SetPoint("BOTTOMLEFT", editor, "BOTTOMLEFT", 12, 8)
+    editor.addBtn = CreateFrame("Button", nil, editor, "UIPanelButtonTemplate")
+    editor.addBtn:SetSize(50, 20)
+    editor.addBtn:SetText("Add")
+    editor.addBtn:SetPoint("LEFT", editor.input, "RIGHT", 6, 0)
+    editor.closeBtn = CreateFrame("Button", nil, editor, "UIPanelButtonTemplate")
+    editor.closeBtn:SetSize(20, 20)
+    editor.closeBtn:SetText("x")
+    editor.closeBtn:SetPoint("TOPRIGHT", editor, "TOPRIGHT", -6, -6)
+
+    local chipBtns = {}
+    for j = 1, 8 do
+        local chip = CreateFrame("Button", nil, editor, "UIPanelButtonTemplate")
+        chip:SetSize(230, 18)
+        chip:SetPoint("TOPLEFT", editor, "TOPLEFT", 10, -26 - (j - 1) * 20)
+        chip:SetNormalFontObject("GameFontHighlightSmall")
+        chip.chipDel = chip:CreateTexture(nil, "OVERLAY")
+        chip.chipDel:SetSize(10, 10)
+        chip.chipDel:SetPoint("RIGHT", chip, "RIGHT", -4, 0)
+        chip.chipDel:SetTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Up")
+        chipBtns[j] = chip
+    end
+
+    local function RemoveId(w, id)
+        if #w.ids <= 1 then
+            print("|cff00ff00eSh HolyTrack:|r a watch entry needs at least one id (delete the row instead).")
+            return
+        end
+        for j, other in ipairs(w.ids) do
+            if other == id then
+                table.remove(w.ids, j)
+                break
+            end
+        end
+        w.id = w.ids[1]
+        ns.RefreshWatchList()
+        OpenIdGroupEditor(w) -- refresh popup content
+    end
+
+    editor.addBtn:SetScript("OnClick", function()
+        local w = editor.w
+        if not w then return end
+        local id = tonumber(editor.input:GetText())
+        if not id then
+            print("|cff00ff00eSh HolyTrack:|r enter a numeric spell ID.")
+            return
+        end
+        if not GetSpellInfo(id) then
+            print("|cff00ff00eSh HolyTrack:|r no spell with ID " .. id .. ".")
+            return
+        end
+        for _, other in ipairs(w.ids) do
+            if other == id then
+                print("|cff00ff00eSh HolyTrack:|r id " .. id .. " is already in this group.")
+                return
+            end
+        end
+        w.ids[#w.ids + 1] = id
+        w.id = w.ids[1]
+        editor.input:SetText("")
+        if #w.ids == 2 then
+            -- first group: freeze the name so GetSpellInfo doesn't overwrite it
+            w.customName = true
+        end
+        ns.RefreshWatchList()
+        OpenIdGroupEditor(w)
+    end)
+    editor.closeBtn:SetScript("OnClick", function() editor:Hide() end)
+
+    function OpenIdGroupEditor(w, row)
+        if editor:IsShown() and editor.w == w then
+            editor:Hide()
+            return
+        end
+        editor.w = w
+        editor.title:SetText(table.concat(w.ids, "+") .. " | " .. (w.name or "?"))
+        for j, chip in ipairs(chipBtns) do
+            local id = w.ids[j]
+            if id then
+                local spellName = GetSpellInfo(id)
+                chip:SetText((spellName or "?") .. "  [" .. id .. "]")
+                chip:SetScript("OnClick", function()
+                    RemoveId(w, id)
+                end)
+                chip:Show()
+            else
+                chip:Hide()
+            end
+        end
+        editor:ClearAllPoints()
+        if row then
+            editor:SetPoint("LEFT", row, "RIGHT", 8, 0)
+        else
+            editor:SetPoint("CENTER", UIParent, "CENTER")
+        end
+        editor:Show()
+    end
 
     -- add form: [ID input] [Add]  -> fetches name+icon from spell id
     local addLabel = AddTitle(panel, "Add spell by ID:")
@@ -520,12 +692,15 @@ function ns.BuildOptionsPanel()
             return
         end
         for _, w in ipairs(ns.db.watch) do
-            if w.id == id then
-                print("|cff00ff00eSh HolyTrack:|r '" .. name .. "' is already in the watch list.")
-                return
+            local wIds = w.ids or {w.id}
+            for _, wid in ipairs(wIds) do
+                if wid == id then
+                    print("|cff00ff00eSh HolyTrack:|r '" .. name .. "' is already in the watch list.")
+                    return
+                end
             end
         end
-        ns.db.watch[#ns.db.watch + 1] = {id = id, name = name, enabled = true, color = {1, 0.7, 0.2, 1}}
+        ns.db.watch[#ns.db.watch + 1] = {id = id, ids = {id}, name = name, enabled = true, mode = "full", color = {1, 0.7, 0.2, 1}}
         idInput:SetText("")
         RefreshWatchList()
         print("|cff00ff00eSh HolyTrack:|r now watching '" .. name .. "' (id " .. id .. ").")

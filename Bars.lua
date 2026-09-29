@@ -90,7 +90,15 @@ function ns.GetRow(i)
         r.time = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         r.time:SetPoint("RIGHT", r, "RIGHT", -2, 0)
         r:SetScript("OnEnter", function(self)
-            if self.unit then
+            if self.summaryList then
+                -- summary bar: per-target breakdown
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(self.summaryTitle or "Summary", 1, 1, 1)
+                for _, e in ipairs(self.summaryList) do
+                    GameTooltip:AddLine(e.name .. ": " .. (e.noExpiry and "--" or ("%.1fs"):format(e.timeLeft)), 0.85, 0.85, 0.85)
+                end
+                GameTooltip:Show()
+            elseif self.unit then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetUnitAura(self.unit, self.auraIndex, "HELPFUL")
                 GameTooltip:Show()
