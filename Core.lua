@@ -596,34 +596,10 @@ function BuildOptionsPanel()
         function(v) ns.db.rowHeight = math.floor(v + 0.5); RefreshEverything() end)
     sHeight:SetPoint("TOPLEFT", panel, "TOPLEFT", 230, -110)
 
-    -- texture picker: scrollable list with previews (dropdown can't scroll)
+    -- texture dropdown (LibSharedMedia). UIDropDownMenu itself can't scroll,
+    -- so long lists use a scrollable level: chunk items into multiple
+    -- sublevels ("More textures..." paging) like big addons do.
     local LSM = LibStub and LibStub("LibSharedMedia-3.0", true) or nil
-    local texLabel = AddTitle(panel, "Bar texture (scroll list)")
-    texLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -152)
-    local texScroll = CreateFrame("ScrollFrame", "eSh_HolyTrackTexScroll", panel, "UIPanelScrollFrameTemplate")
-    texScroll:SetSize(250, 100)
-    texScroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -170)
-    local texChild = CreateFrame("Frame", nil, texScroll)
-    texChild:SetSize(230, 100)
-    texScroll:SetScrollChild(texChild)
-
-    local texRows = {}
-    local function GetTexRow(i)
-        local r = texRows[i]
-        if not r then
-            r = CreateFrame("Button", nil, texChild, "UIPanelButtonTemplate")
-            r:SetSize(220, 20)
-            r.preview = r:CreateTexture(nil, "OVERLAY")
-            r.preview:SetSize(30, 12)
-            r.preview:SetPoint("LEFT", r, "LEFT", 4, 0)
-            r.preview:SetTexCoord(0, 1, 0, 1)
-            r.txt = r:GetFontString()
-            r.txt:ClearAllPoints()
-            r.txt:SetPoint("LEFT", r.preview, "RIGHT", 6, 0)
-            texRows[i] = r
-        end
-        return r
-    end
 
     local function TextureItems()
         local items = {}
@@ -640,34 +616,72 @@ function BuildOptionsPanel()
         return items
     end
 
-    local function RefreshTextureList()
-        local items = TextureItems()
-        for i = 1, math.max(#texRows, #items) do
-            local r = GetTexRow(i)
-            local item = items[i]
-            if item then
-                r:Show()
-                r:ClearAllPoints()
-                r:SetPoint("TOPLEFT", texChild, "TOPLEFT", 0, -(i - 1) * 22)
-                r.preview:SetTexture(item.path)
-                r:SetText(item.name)
-                if ns.db.texture == item.path then
-                    r:LockHighlight()
-                else
-                    r:UnlockHighlight()
-                end
-                r:SetScript("OnClick", function()
-                    ns.db.texture = item.path
-                    RefreshTextureList()
-                    RefreshEverything()
-                end)
-            else
-                r:Hide()
-            end
+    local PAGE = 20 -- items per dropdown page
+    local dd = CreateFrame("Frame", "eSh_HolyTrackTextureDD", panel, "UIDropDownMenuTemplate")
+    UIDropDownMenu_SetWidth(dd, 170)
+    UIDropDownMenu_JustifyText(dd, "LEFT")
+    local ddLabel = AddTitle(panel, "Bar texture")
+    ddLabel:SetPoint("BOTTOMLEFT", dd, "TOPLEFT", 8, 0)
+
+    local function textureName(path)
+        for _, t in ipairs(TextureItems()) do
+            if t.path == path then return t.name end
         end
-        texChild:SetHeight(#items * 22 + 4)
+        return path
     end
-    ns.RefreshTextureList = RefreshTextureList
+
+    local function ddInit(self, level)
+        local items = TextureItems()
+        local start = (level and level > 1) and (UIDROPDOWNMENU_MENU_VALUE or 0) or 0
+        local chunk = {}
+        for i = start + 1, math.min(start + PAGE, #items) do
+            chunk[#chunk + 1] = items[i]
+        end
+        -- "previous page" entry on sublevels
+        if level and level > 1 then
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = "|cffaaaaaa<< back|r"
+            info.value = start - PAGE
+            info.notCheckable = true
+            info.func = function()
+                CloseDropDownMenus()
+                ToggleDropDownMenu(1, nil, dd, "cursor")
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+        for _, t in ipairs(chunk) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = t.name
+            info.value = t.path
+            info.func = function()
+                ns.db.texture = t.path
+                UIDropDownMenu_SetSelectedValue(dd, t.path)
+                UIDropDownMenu_SetText(dd, t.name)
+                CloseDropDownMenus()
+                RefreshEverything()
+            end
+            info.checked = ns.db.texture == t.path
+            UIDropDownMenu_AddButton(info, level)
+        end
+        -- "more" entry opens next chunk as a sublevel
+        if start + PAGE < #items then
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = "More textures... (" .. (#items - start - PAGE) .. " more)"
+            info.value = start + PAGE
+            info.notCheckable = true
+            info.hasArrow = true
+            info.func = function() end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end
+    UIDropDownMenu_Initialize(dd, ddInit)
+    UIDropDownMenu_SetSelectedValue(dd, ns.db.texture)
+    UIDropDownMenu_SetText(dd, textureName(ns.db.texture))
+    dd:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -152)
+    dd.refresh = function()
+        UIDropDownMenu_SetSelectedValue(dd, ns.db.texture)
+        UIDropDownMenu_SetText(dd, textureName(ns.db.texture))
+    end
 
     -- grow direction dropdown
     local growDD = CreateFrame("Frame", "eSh_HolyTrackGrowDD", panel, "UIDropDownMenuTemplate")
@@ -815,7 +829,6 @@ function BuildOptionsPanel()
     ns.RefreshWatchList = RefreshWatchList
     panel:SetScript("OnShow", function()
         RefreshWatchList()
-        if ns.RefreshTextureList then ns.RefreshTextureList() end
     end)
 
     -- add form: [ID input] [Add]  -> fetches name+icon from spell id
@@ -935,7 +948,6 @@ function RefreshAllControls()
         if child.refresh then child.refresh() end
     end
     if ns.RefreshWatchList then ns.RefreshWatchList() end
-    if ns.RefreshTextureList then ns.RefreshTextureList() end
 end
 
 -- ============================================================
